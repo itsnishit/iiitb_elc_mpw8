@@ -69,97 +69,166 @@ module user_proj_example #(
     output [2:0] irq
 );
     wire clk;
-    wire rst;
+    wire reset;
 
-    wire [`MPRJ_IO_PADS-1:0] io_in;
-    wire [`MPRJ_IO_PADS-1:0] io_out;
-    wire [`MPRJ_IO_PADS-1:0] io_oeb;
-
-    wire [31:0] rdata; 
-    wire [31:0] wdata;
-    wire [BITS-1:0] count;
-
-    wire valid;
-    wire [3:0] wstrb;
-    wire [31:0] la_write;
-
-    // WB MI A
-    assign valid = wbs_cyc_i && wbs_stb_i; 
-    assign wstrb = wbs_sel_i & {4{wbs_we_i}};
-    assign wbs_dat_o = rdata;
-    assign wdata = wbs_dat_i;
 
     // IO
-    assign io_out = count;
-    assign io_oeb = {(`MPRJ_IO_PADS-1){rst}};
+    assign clk = wb_clk_i;
+    assign reset = wb_rst_i;
+    assign io_out[37:26] = {direction,complete,door_alert,weight_alert,out_current_floor};
+    assign io_oeb = 0;
+    assign {request_floor,in_current_floor,over_time,over_weight} = io_in[37:20]; 
 
     // IRQ
     assign irq = 3'b000;	// Unused
 
-    // LA
-    assign la_data_out = {{(127-BITS){1'b0}}, count};
-    // Assuming LA probes [63:32] are for controlling the count register  
-    assign la_write = ~la_oenb[63:32] & ~{BITS{valid}};
-    // Assuming LA probes [65:64] are for controlling the count clk & reset  
-    assign clk = (~la_oenb[64]) ? la_data_in[64]: wb_clk_i;
-    assign rst = (~la_oenb[65]) ? la_data_in[65]: wb_rst_i;
-
-    counter #(
-        .BITS(BITS)
-    ) counter(
-        .clk(clk),
-        .reset(rst),
-        .ready(wbs_ack_o),
-        .valid(valid),
-        .rdata(rdata),
-        .wdata(wbs_dat_i),
-        .wstrb(wstrb),
-        .la_write(la_write),
-        .la_input(la_data_in[63:32]),
-        .count(count)
-    );
+    wire [7:0]request_floor;
+    wire [7:0]in_current_floor;
+    wire complete;
+    wire direction;
+    wire over_time;
+    wire over_weight;
+    wire weight_alert;
+    wire door_alert;
+    wire [7:0]request_floor;
+    
+    iiitb_elc dut (.clk(clk), .reset(reset), .request_floor(request_floor), .in_current_floor(in_current_floor), .complete(complete), .direction(direction), .over_time(over_time), 
+                   .over_weight(over_weight), .weight_alert(weight_alert), .door_alert(door_alert), .request_floor(request_floor));   
+    
+    
 
 endmodule
 
-module counter #(
-    parameter BITS = 32
-)(
-    input clk,
-    input reset,
-    input valid,
-    input [3:0] wstrb,
-    input [BITS-1:0] wdata,
-    input [BITS-1:0] la_write,
-    input [BITS-1:0] la_input,
-    output ready,
-    output [BITS-1:0] rdata,
-    output [BITS-1:0] count
-);
-    reg ready;
-    reg [BITS-1:0] count;
-    reg [BITS-1:0] rdata;
+module iiitb_elc (request_floor, in_current_floor, clk, reset, complete, direction,
+over_time, over_weight, weight_alert, door_alert, out_current_floor) ;
 
-    always @(posedge clk) begin
-        if (reset) begin
-            count <= 0;
-            ready <= 0;
-        end else begin
-            ready <= 1'b0;
-            if (~|la_write) begin
-                count <= count + 1;
-            end
-            if (valid && !ready) begin
-                ready <= 1'b1;
-                rdata <= count;
-                if (wstrb[0]) count[7:0]   <= wdata[7:0];
-                if (wstrb[1]) count[15:8]  <= wdata[15:8];
-                if (wstrb[2]) count[23:16] <= wdata[23:16];
-                if (wstrb[3]) count[31:24] <= wdata[31:24];
-            end else if (|la_write) begin
-                count <= la_write & la_input;
-            end
-        end
-    end
+//input pins
+input [7:0]request_floor; // the 8 bit input request floor
+input [7:0]in_current_floor; // the 8 bit input floor,
+input clk; //-ve generate = low Frequency clock
+input reset; // the 1 bit input reset
+input over_time; //the 1 bit input which indicates the door keep open for 3 ninutes
+input over_weight; // the 1 bit input which indicates the weight in the elevator is larger than 900kgs
 
+
+//output pins
+output direction; // the 1 bit output which indicates the direction of the elevator
+output complete;// the 1 bit output vhich indicates whether elevalor is running or stopped
+output door_alert;// the 1 bit output vhich indicates the door keep open for 3 nimutes
+output weight_alert;// the 1 bit output which nficates the weight in the elevator is larger than 900kgs
+output [7:0] out_current_floor; // the 8 bit output which shows the current floor
+
+//register parameters
+reg r_direction;// 1 bit register connected to the output direction
+reg r_complete;// 1 bit register connected to the output complete
+reg r_door_alert;// 1 bit register connected to the output door_slert
+reg r_weight_alert; // 1 bit register connected to the output veigh alert
+reg [7:0] r_out_current_floor;// 8 bit register connected to the output out_current_floor;
+
+/*
+//Clock generator register
+reg [12:0] clk_count;
+// reg clk_200;
+reg clk_trigger;
+*/
+
+
+//initialization
+/*
+always@(negedge reset)
+begin
+clk_200=1'b0;
+clk_count=0;
+clk_trigger=1'b0;
+
+//reset clock registers
+r_direction=1'b0;
+r_complete=1'b0; // set the default value to 0
+r_door_alert=1'b0;//set the default value to 0
+r_weight_alert=1'b0; //set the default value to 0
+r_out_current_floor <= in_current_floor;
+end
+*/
+/*
+//clock generator block
+always@(posedge clk)
+begin
+if(clk_trigger)
+clk_count=clk_count+1;
+if(clk_count==5000)
+begin
+clk_200=~clk_200;
+clk_count=0;
+end
+end
+*/
+
+//if request floor occurs
+/*
+always@(request_floor)
+begin
+//clk_trigger=1'b1;
+//clk_200=~clk_200;
+r_out_current_floor <= in_current_floor;
+end
+*/
+//normal running case of elevator
+
+
+
+always@(posedge clk)
+begin
+r_complete= 0;
+r_direction = 1;
+r_weight_alert = 0;
+r_door_alert = 0;
+if(reset)
+r_out_current_floor <= in_current_floor;
+
+else if(!reset && !over_time && !over_weight)
+begin
+//Case 1: normal movement of elevator
+if (request_floor > r_out_current_floor) begin
+r_direction <= 1'b1;
+r_out_current_floor <= r_out_current_floor << 1;
+end
+
+else if (request_floor < r_out_current_floor) begin
+r_direction <= 1'b0;
+r_out_current_floor = r_out_current_floor >> 1;
+end
+
+else if (request_floor == r_out_current_floor) begin
+r_complete <= 1;
+r_direction <= 0;
+end
+end
+
+ //Case 2: the door is kept open for more than 3 minutes
+else if (!reset && over_time)
+begin
+r_door_alert <= 1;
+r_complete <= 0;
+r_weight_alert <= 0;
+r_direction <= 0;
+r_out_current_floor <= r_out_current_floor;
+end
+
+//Case 3: the total weight in the elevator is more than 900kgs
+else if(!reset && over_weight)begin
+r_door_alert <= 0;
+r_weight_alert <= 1;
+r_complete <= 0;
+r_direction <= 0;
+r_out_current_floor <= r_out_current_floor;
+end
+end
+
+//match pins and registers
+assign direction=r_direction;
+assign complete=r_complete;
+assign door_alert=r_door_alert;
+assign weight_alert=r_weight_alert;
+assign out_current_floor= r_out_current_floor;
 endmodule
 `default_nettype wire
